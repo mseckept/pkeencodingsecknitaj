@@ -1,0 +1,180 @@
+# SimulaMath Implementation Version >=1.1
+# To test the code :
+#   - Open Simulamath
+#   - Load this file or copy and paste it into the programming editor.
+
+# Usefull functions
+
+def is_cube(a, p): 
+    """Test if a is a cubic residue mod p, p prime"""
+    return power_mod(a, (p-1)/gcd(3, p-1), p) == 1
+
+
+def rand_prime_congru_1_mod3(size):
+    """Randomly generate a prime p, 2 <= p < 2^size"""
+    p = random_prime(2 << size - 1)
+    while p%3 != 1:
+        p = random_prime(2 << size - 1)
+    return p
+
+
+def rand_pq(size):
+    """Randomly generate two distinct primes p, q = 1 mod 3 
+    """
+    p = rand_prime_congru_1_mod3(size)
+    q = p
+    while q == p:
+        q = rand_prime_congru_1_mod3(size)
+    return (p, q)
+
+
+def rand_b(p, q, N):
+    """Randomly generate a integer b such that a = b^3 is a cube mod p and q
+    """
+    b = randint(1, N)
+    a = power_mod(b, 3, N)
+    while (not is_cube(a, p)) or (not is_cube(a, q)):
+        b = randint(1, N)
+        a = power_mod(b, 3, N)
+    return b
+
+# Arithmetic of cubic pell curve
+
+def norme(pt, a, N):
+    """Norm of a point pt modulo N"""
+    x, y, z = pt
+    return (x^3+a*y^3+a^2*z^3-3*a*x*y*z) % N
+
+
+def encode2curve(pt, b, N):
+    """Map a point (l,m) in Z/NZ x Z/NZ into a point (x, y, z) in 
+        the cubic Pell curve C_a(N) = x^3+ay^3+a^2z^3-3axyz =  1 in Z/NZ  with a = b^3
+    """
+    (l, m, n) = (*pt, 1); a = power_mod(b, 3, N)
+    x2 = (l^3 + 2*b^2*l*(m^2 + b*m*n + b^2*n^2) + b^4*m*n*(m + b*n)) % N
+    y2 = (b^2*m^3 + 2*m*(l^2 + b^2*l*n + b^4*n^2) + b*l*n*(l + b^2*n)) % N
+    z2 = (b^5*n^3 + 2*b*n*(l^2 + b*l*m + b^2*m^2) + l*m*(l + b*m)) % N
+    g = norme((l, m, n), a, N)
+    x3 = (x2 * inverse_mod(g, N)) % N
+    y3 = (y2 * inverse_mod(g, N)) % N
+    z3 = (z2 * inverse_mod(b*g, N)) % N
+    return (x3, y3, z3)
+
+def decode_from_curve(pt, b, N):
+    """Map a point (x, y, z) in the cubic Pell curve 
+       C_a(N) = x^3+ay^3+a^2z^3-3axyz =  1 in Z/NZ  with a = b^3
+       into  a point (l, m) in Z/NZ x Z/NZ such that 
+       encode2curve((l, m), b, N) = (x, y, z)
+    """
+    (x, y, z) = pt
+    x2 = (b^2*(1+2*x-b*y-b^2*z)) % N
+    y2 = (b*(1-x+2*b*y-b^2*z)) % N
+    z2 = (1-x-b*y+2*b^2*z) % N
+    x3 = (x2 * inverse_mod(z2, N)) % N
+    y3 = (y2 * inverse_mod(z2, N)) % N
+    return (x3, y3)
+
+
+def is_on_curve(pt, a, N):
+    """Test if a point pt is on the cubic Pell curve
+       C_a(N) = x^3+ay^3+a^2z^3-3axyz =  1 in Z/NZ 
+    """
+    x, y, z = pt
+    return (x^3+a*y^3+a^2*z^3-3*a*x*y*z - 1) % N == 0
+
+
+def add(pt1, pt2, a, N):
+    """Add two points pt1 and pt2 on the cubic Pell curve
+       C_a(N) = x^3+ay^3+a^2z^3-3axyz =  1 in Z/NZ 
+    """
+    (x1, y1, z1) =  pt1; (x2, y2, z2) = pt2
+    x3 = (x1*x2 + a*(y2*z1 + y1*z2)) % N
+    y3 = (x2*y1 + x1*y2 + a*z1*z2) % N
+    z3 = (y1*y2 + x2*z1 + x1*z2) % N
+    return (x3, y3, z3)
+
+
+def exponent(pt, e, a, N):
+    """Lft to right scalar multiplication on cubic Pell curve
+       C_a(N) = x^3+ay^3+a^2z^3-3axyz =  1 in Z/NZ 
+    """
+    (x1, y1, z1) = pt; (x2, y2, z2) = (1, 0, 0)
+    for bit in bin(e)[2:]:
+        (x2, y2, z2) = add((x2, y2, z2), (x2, y2, z2), a, N)
+        if bit == '1': 
+            (x2, y2, z2) = add((x2, y2, z2), (x1, y1, z1), a, N)
+    
+    return (x2, y2, z2)
+
+            
+# Our Scheme 
+
+def keygen(size, r, s):
+    """The key generation algorithm
+    Parameters:
+    - :size: is an integer such that 2 <= p, q < 2^size
+    """
+    p, q = rand_pq(size)
+    N = p^r * q^s
+    b = rand_b(p, q, N)
+    ordn = p^(2*(r-1))*q^(2*(s-1))*(p - 1)^2*(q - 1)^2
+    e = randint(1, N)
+    while gcd(e, ordn) != 1:
+        e = randint(1, N)
+    d = inverse_mod(e, ordn)
+    return (N, b, e), (N, b, d)
+
+    
+def encipher(m, pk):
+    """Compute the ciphertext of m using the public key pk"""
+    (N, b, e) = pk   
+    a = power_mod(b, 3, N)
+    ptx = encode2curve(m, b, N)
+    ctx = exponent(ptx, e, a, N)
+    return decode_from_curve(ctx, b, N)
+    
+    
+def decipher(ctx, sk):
+    """Decipher the ciphertext ctx using the secret key sk"""
+    (N, b, d) = sk; (cx, cy) = ctx
+    a = power_mod(b, 3, N)
+    ctx2 = encode2curve(ctx, b, N)
+    ptx = exponent(ctx2, d, a, N)
+    return decode_from_curve(ptx, b, N)
+
+
+def test_random_messages(nbr_ptx, pk, sk):
+    """Test the correctness of our scheme for a sample of randamly generated of messages."""
+    number_plaintext_text = nbr_ptx
+    i = 1
+    while i <= number_plaintext_text:
+        mi = (randint(1, N), randint(1, N));
+        ctx = encipher(mi, pk); 
+        ptx = decipher(ctx, sk);
+        if mi != ptx:
+            return False, i
+        i += 1
+    return True
+
+
+#========================================================================================================
+
+# Some Test
+r, s = 1, 2
+size_pq = 40 # bits
+(N, b, e), (N, b, d) = keygen(size_pq, r, s)
+print("pk = ", (N, b, e), "\nsk = ", (N, b, d))
+
+ 
+# We check that D(sk, E(pk, M)) = M
+number_cipher_text = 10
+i = 1
+while i<=number_cipher_text:
+    mi = (randint(1, N), randint(1, N)); print(f"\nmi{i}\t      = {mi}", end="\n")
+    ctx = encipher(mi, pk=(N, b, e)); print(f"ctx{i} = E(mi{i}) = {ctx}", end="\n")
+    ptx = decipher(ctx, sk=(N, b, d)); print(f"ptx{i} = D(ctx{i})= {ptx}")
+    i += 1
+
+
+# test_random_messages(nbr_ptx=10, pk=(N, b, e), sk=(N, b, d))
+
